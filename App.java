@@ -27,10 +27,9 @@ public class App {
             System.out.println("2. View All Parcels");
             System.out.println("3. Change Delivery Service");
             System.out.println("4. Mark as Delivered");
-            System.out.println("5. View Parcel Details");
-            System.out.println("6. Exit");
+            System.out.println("5. Exit");
 
-            switch (readInt("Choose an option: ", 1, 6)) {
+            switch (readInt("Choose an option: ", 1, 5)) {
                 case 1:
                     addParcel();
                     break;
@@ -44,9 +43,6 @@ public class App {
                     markAsDelivered();
                     break;
                 case 5:
-                    viewParcelDetails();
-                    break;
-                case 6:
                     running = false;
                     System.out.println("Goodbye!");
                     break;
@@ -124,35 +120,6 @@ public class App {
                     parcel.getTrackingNumber(), parcel.getType(), truncate(parcel.getReceiverName(), 22),
                     parcel.getChargeableWeight(), parcel.getDeliveryService(), parcel.getDeliveryFee(),
                     parcel.getStatus());
-        }
-    }
-
-    private static void viewParcelDetails() {
-        Parcel parcel = findParcel(readNonEmpty("Tracking number: "));
-        if (parcel == null) {
-            System.out.println("Parcel not found!");
-            return;
-        }
-
-        System.out.println("\n=== Parcel Details ===");
-        System.out.println("Tracking number: " + parcel.getTrackingNumber());
-        System.out.println("Type: " + parcel.getType());
-        System.out.println("Receiver: " + parcel.getReceiverName());
-        System.out.printf(Locale.US, "Actual weight: %.2f kg%n", parcel.getActualWeight());
-        System.out.printf(Locale.US, "Chargeable weight: %.2f kg%n", parcel.getChargeableWeight());
-        System.out.println("Delivery service: " + parcel.getDeliveryService());
-        System.out.printf(Locale.US, "Delivery fee: Php %.2f%n", parcel.getDeliveryFee());
-        System.out.println("Status: " + parcel.getStatus());
-        if (parcel instanceof DocumentParcel) {
-            System.out.println("Number of pages: " + ((DocumentParcel) parcel).getNumberOfPages());
-        }
-        if (parcel instanceof BoxParcel) {
-            BoxParcel box = (BoxParcel) parcel;
-            System.out.printf("Dimensions: %d x %d x %d cm%n",
-                    box.getLength(), box.getWidth(), box.getHeight());
-        }
-        if (parcel instanceof FragileParcel) {
-            System.out.println("Handling note: " + ((FragileParcel) parcel).getHandlingNote());
         }
     }
 
@@ -251,9 +218,12 @@ public class App {
             String value = readLine().trim();
             try {
                 BigDecimal number = new BigDecimal(value);
+                double convertedNumber = number.doubleValue();
                 if (number.compareTo(BigDecimal.valueOf(minimumExclusive)) > 0
-                        && number.compareTo(BigDecimal.valueOf(maximum)) <= 0) {
-                    return number.doubleValue();
+                        && number.compareTo(BigDecimal.valueOf(maximum)) <= 0
+                        && Double.isFinite(convertedNumber)
+                        && convertedNumber > minimumExclusive) {
+                    return convertedNumber;
                 }
             } catch (NumberFormatException exception) {
                 // Report invalid input below.
@@ -332,6 +302,9 @@ abstract class Parcel {
         if (deliveryService == null) {
             throw new IllegalArgumentException("Delivery service cannot be null.");
         }
+        if (deliveryService == DeliveryService.SAME_DAY && !isSameDayEligible()) {
+            throw new IllegalArgumentException("Same Day delivery is only for parcels up to 10 kg!");
+        }
         this.deliveryService = deliveryService;
     }
 
@@ -380,10 +353,6 @@ final class DocumentParcel extends Parcel {
         this.numberOfPages = numberOfPages;
     }
 
-    int getNumberOfPages() {
-        return numberOfPages;
-    }
-
     @Override
     ParcelType getType() {
         return ParcelType.DOCUMENT;
@@ -424,18 +393,6 @@ class BoxParcel extends Parcel {
         }
     }
 
-    int getLength() {
-        return length;
-    }
-
-    int getWidth() {
-        return width;
-    }
-
-    int getHeight() {
-        return height;
-    }
-
     @Override
     ParcelType getType() {
         return ParcelType.BOX;
@@ -466,10 +423,6 @@ final class FragileParcel extends BoxParcel {
             throw new IllegalArgumentException("Handling note cannot be empty.");
         }
         this.handlingNote = handlingNote.trim();
-    }
-
-    String getHandlingNote() {
-        return handlingNote;
     }
 
     @Override
