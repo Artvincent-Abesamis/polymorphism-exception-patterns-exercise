@@ -27,9 +27,10 @@ public class App {
             System.out.println("2. View All Parcels");
             System.out.println("3. Change Delivery Service");
             System.out.println("4. Mark as Delivered");
-            System.out.println("5. Exit");
+            System.out.println("5. View Parcel Details");
+            System.out.println("6. Exit");
 
-            switch (readInt("Choose an option: ", 1, 5)) {
+            switch (readInt("Choose an option: ", 1, 6)) {
                 case 1:
                     addParcel();
                     break;
@@ -43,6 +44,9 @@ public class App {
                     markAsDelivered();
                     break;
                 case 5:
+                    viewParcelDetails();
+                    break;
+                case 6:
                     running = false;
                     System.out.println("Goodbye!");
                     break;
@@ -70,16 +74,16 @@ public class App {
                 break;
             case BOX:
                 weight = readDecimal("Weight in kg (maximum 50): ", 0, 50);
-                int length = readInt("Length in cm: ", 1, Integer.MAX_VALUE);
-                int width = readInt("Width in cm: ", 1, Integer.MAX_VALUE);
-                int height = readInt("Height in cm: ", 1, Integer.MAX_VALUE);
+                int length = readInt("Length in cm (1-200): ", 1, 200);
+                int width = readInt("Width in cm (1-200): ", 1, 200);
+                int height = readInt("Height in cm (1-200): ", 1, 200);
                 addWithService(new BoxParcel(trackingNumber, receiverName, weight, length, width, height));
                 break;
             case FRAGILE:
                 weight = readDecimal("Weight in kg (maximum 30): ", 0, 30);
-                length = readInt("Length in cm: ", 1, Integer.MAX_VALUE);
-                width = readInt("Width in cm: ", 1, Integer.MAX_VALUE);
-                height = readInt("Height in cm: ", 1, Integer.MAX_VALUE);
+                length = readInt("Length in cm (1-200): ", 1, 200);
+                width = readInt("Width in cm (1-200): ", 1, 200);
+                height = readInt("Height in cm (1-200): ", 1, 200);
                 String handlingNote = readNonEmpty("Handling note: ");
                 addWithService(new FragileParcel(
                         trackingNumber, receiverName, weight, length, width, height, handlingNote));
@@ -107,14 +111,48 @@ public class App {
             return;
         }
 
-        System.out.printf("%-12s %-10s %-22s %13s %-12s %16s %-10s%n",
+        String header = String.format("%-12s %-10s %-22s %13s %-12s %16s %-10s",
                 "Tracking No.", "Type", "Receiver", "Chargeable kg", "Service", "Delivery fee", "Status");
-        System.out.println("-----------------------------------------------------------------------------------------------");
+        System.out.println(header);
+        StringBuilder separator = new StringBuilder(header.length());
+        for (int i = 0; i < header.length(); i++) {
+            separator.append('-');
+        }
+        System.out.println(separator);
         for (Parcel parcel : PARCELS) {
-            System.out.printf(Locale.US, "%-12s %-10s %-22s %13.2f %-12s Php %11.2f %-10s%n",
+            System.out.printf(Locale.US, "%-12s %-10s %-22s %13.2f %-12s Php %12.2f %-10s%n",
                     parcel.getTrackingNumber(), parcel.getType(), truncate(parcel.getReceiverName(), 22),
                     parcel.getChargeableWeight(), parcel.getDeliveryService(), parcel.getDeliveryFee(),
                     parcel.getStatus());
+        }
+    }
+
+    private static void viewParcelDetails() {
+        Parcel parcel = findParcel(readNonEmpty("Tracking number: "));
+        if (parcel == null) {
+            System.out.println("Parcel not found!");
+            return;
+        }
+
+        System.out.println("\n=== Parcel Details ===");
+        System.out.println("Tracking number: " + parcel.getTrackingNumber());
+        System.out.println("Type: " + parcel.getType());
+        System.out.println("Receiver: " + parcel.getReceiverName());
+        System.out.printf(Locale.US, "Actual weight: %.2f kg%n", parcel.getActualWeight());
+        System.out.printf(Locale.US, "Chargeable weight: %.2f kg%n", parcel.getChargeableWeight());
+        System.out.println("Delivery service: " + parcel.getDeliveryService());
+        System.out.printf(Locale.US, "Delivery fee: Php %.2f%n", parcel.getDeliveryFee());
+        System.out.println("Status: " + parcel.getStatus());
+        if (parcel instanceof DocumentParcel) {
+            System.out.println("Number of pages: " + ((DocumentParcel) parcel).getNumberOfPages());
+        }
+        if (parcel instanceof BoxParcel) {
+            BoxParcel box = (BoxParcel) parcel;
+            System.out.printf("Dimensions: %d x %d x %d cm%n",
+                    box.getLength(), box.getWidth(), box.getHeight());
+        }
+        if (parcel instanceof FragileParcel) {
+            System.out.println("Handling note: " + ((FragileParcel) parcel).getHandlingNote());
         }
     }
 
@@ -212,9 +250,10 @@ public class App {
             System.out.print(prompt);
             String value = readLine().trim();
             try {
-                double number = Double.parseDouble(value);
-                if (Double.isFinite(number) && number > minimumExclusive && number <= maximum) {
-                    return number;
+                BigDecimal number = new BigDecimal(value);
+                if (number.compareTo(BigDecimal.valueOf(minimumExclusive)) > 0
+                        && number.compareTo(BigDecimal.valueOf(maximum)) <= 0) {
+                    return number.doubleValue();
                 }
             } catch (NumberFormatException exception) {
                 // Report invalid input below.
@@ -248,15 +287,26 @@ public class App {
 }
 
 abstract class Parcel {
+    private static final Pattern TRACKING_NUMBER_PATTERN = Pattern.compile("ABC\\d{4}", Pattern.CASE_INSENSITIVE);
+
     private final String trackingNumber;
     private final String receiverName;
     private final double actualWeight;
-    private DeliveryService deliveryService;
+    private DeliveryService deliveryService = DeliveryService.STANDARD;
     private ParcelStatus status = ParcelStatus.PENDING;
 
     Parcel(String trackingNumber, String receiverName, double actualWeight) {
-        this.trackingNumber = trackingNumber;
-        this.receiverName = receiverName;
+        if (trackingNumber == null || !TRACKING_NUMBER_PATTERN.matcher(trackingNumber).matches()) {
+            throw new IllegalArgumentException("Tracking number must be ABC followed by 4 digits.");
+        }
+        if (receiverName == null || receiverName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Receiver name cannot be empty.");
+        }
+        if (!Double.isFinite(actualWeight) || actualWeight <= 0) {
+            throw new IllegalArgumentException("Weight must be a finite number greater than 0.");
+        }
+        this.trackingNumber = trackingNumber.toUpperCase(Locale.ROOT);
+        this.receiverName = receiverName.trim();
         this.actualWeight = actualWeight;
     }
 
@@ -279,6 +329,9 @@ abstract class Parcel {
     }
 
     final void setDeliveryService(DeliveryService deliveryService) {
+        if (deliveryService == null) {
+            throw new IllegalArgumentException("Delivery service cannot be null.");
+        }
         this.deliveryService = deliveryService;
     }
 
@@ -318,7 +371,17 @@ final class DocumentParcel extends Parcel {
 
     DocumentParcel(String trackingNumber, String receiverName, double actualWeight, int numberOfPages) {
         super(trackingNumber, receiverName, actualWeight);
+        if (actualWeight > 0.5) {
+            throw new IllegalArgumentException("Document weight cannot exceed 0.5 kg.");
+        }
+        if (numberOfPages < 1 || numberOfPages > 100) {
+            throw new IllegalArgumentException("Number of pages must be between 1 and 100.");
+        }
         this.numberOfPages = numberOfPages;
+    }
+
+    int getNumberOfPages() {
+        return numberOfPages;
     }
 
     @Override
@@ -344,9 +407,33 @@ class BoxParcel extends Parcel {
 
     BoxParcel(String trackingNumber, String receiverName, double actualWeight, int length, int width, int height) {
         super(trackingNumber, receiverName, actualWeight);
+        if (actualWeight > 50) {
+            throw new IllegalArgumentException("Box weight cannot exceed 50 kg.");
+        }
+        validateDimension(length);
+        validateDimension(width);
+        validateDimension(height);
         this.length = length;
         this.width = width;
         this.height = height;
+    }
+
+    private static void validateDimension(int dimension) {
+        if (dimension < 1 || dimension > 200) {
+            throw new IllegalArgumentException("Each dimension must be between 1 and 200 cm.");
+        }
+    }
+
+    int getLength() {
+        return length;
+    }
+
+    int getWidth() {
+        return width;
+    }
+
+    int getHeight() {
+        return height;
     }
 
     @Override
@@ -372,7 +459,17 @@ final class FragileParcel extends BoxParcel {
     FragileParcel(String trackingNumber, String receiverName, double actualWeight,
                   int length, int width, int height, String handlingNote) {
         super(trackingNumber, receiverName, actualWeight, length, width, height);
-        this.handlingNote = handlingNote;
+        if (actualWeight > 30) {
+            throw new IllegalArgumentException("Fragile parcel weight cannot exceed 30 kg.");
+        }
+        if (handlingNote == null || handlingNote.trim().isEmpty()) {
+            throw new IllegalArgumentException("Handling note cannot be empty.");
+        }
+        this.handlingNote = handlingNote.trim();
+    }
+
+    String getHandlingNote() {
+        return handlingNote;
     }
 
     @Override
